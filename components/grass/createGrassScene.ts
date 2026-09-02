@@ -3,7 +3,8 @@ import { pass } from "three/tsl";
 import { bloom } from "three/addons/tsl/display/BloomNode.js";
 import { buildGround } from "./ground";
 import { loadEnvironmentMap } from "./environment";
-import { Grass } from "./Grass";
+import { Grass, UnsupportedGrassRendererError, INDIRECT_FIRST_INSTANCE_FEATURE, type GrassLike } from "./Grass";
+import { FallbackGrass } from "./FallbackGrass";
 import { Player } from "./Player";
 import { PlayerCamera, playerCameraConfig } from "./PlayerCamera";
 import { updateCameraUniforms } from "./CameraUniforms";
@@ -40,6 +41,7 @@ const SUN_LIGHT_INTENSITY = 10;
 const SUN_LIGHT_DISTANCE = 30; // how far back along -sunDir the light sits from its target
 const HEMI_LIGHT_INTENSITY = 2.5;
 const SHADOW_MAP_SIZE = 1024;
+const SHADOW_MAP_SIZE_LOW_POWER = 512; // halved for WebGL2/mobile — shadow map render+sample cost scales with the square of this
 const SHADOW_FRUSTUM_HALF_SIZE = 12; // shadow only needs to cover the area right around the player
 const SHADOW_CAMERA_FAR = 60;
 const SHADOW_BIAS = -0.01;
@@ -72,6 +74,13 @@ export async function createGrassScene(
   canvas: HTMLCanvasElement
 ): Promise<GrassSceneHandle> {
   const scene = new THREE.Scene();
+
+  // same feature Grass's constructor gates on — true for every mobile
+  // browser today (even ones with partial WebGPU support), since none of
+  // them expose indirect-first-instance. Used below to also trim the other
+  // GPU-heavy effects (shadow map res, bloom) rather than just the grass.
+  const isLowPowerBackend = !renderer.hasFeature(INDIRECT_FIRST_INSTANCE_FEATURE);
+  const shadowMapSize = isLowPowerBackend ? SHADOW_MAP_SIZE_LOW_POWER : SHADOW_MAP_SIZE;
 
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
@@ -108,7 +117,7 @@ export async function createGrassScene(
   // shadow only lands on the ground plane.
   const sunLight = new THREE.DirectionalLight(uSunColor.value, SUN_LIGHT_INTENSITY);
   sunLight.castShadow = true;
-  sunLight.shadow.mapSize.set(SHADOW_MAP_SIZE, SHADOW_MAP_SIZE);
+  sunLight.shadow.mapSize.set(shadowMapSize, shadowMapSize);
   sunLight.shadow.bias = SHADOW_BIAS;
   sunLight.shadow.camera.near = 0.5;
   sunLight.shadow.camera.far = SHADOW_CAMERA_FAR;
@@ -129,8 +138,19 @@ export async function createGrassScene(
   };
 
   // only the clumps inside the camera's frustum ever get appended to the
-  // indirect draw list, so grass outside view costs nothing to render
-  const grass = new Grass(renderer);
+  // indirect draw list, so grass outside view costs nothing to render — but
+  // that needs the WebGPU `indirect-first-instance` feature, which most
+  // mobile browsers don't have (even ones with some WebGPU support fall back
+  // to three's WebGL2 backend, which has no compute/indirect draws at all).
+  // Rather than showing an error there, drop to a much lighter CPU-scattered
+  // grass patch that still matches the same look.
+  let grass: GrassLike;
+  try {
+    grass = new Grass(renderer);
+  } catch (err) {
+    if (!(err instanceof UnsupportedGrassRendererError)) throw err;
+    grass = new FallbackGrass();
+  }
   scene.add(grass.tile);
   await grass.init();
 
@@ -157,7 +177,9 @@ export async function createGrassScene(
     // rebuilds its fullscreen-quad material when this flag is set
     renderPipeline.needsUpdate = true;
   };
-  setBloomEnabled(true);
+  // bloom is a full extra post-process pass + blur mip chain — skip it by
+  // default on WebGL2/mobile where every frame is already tighter on budget
+  setBloomEnabled(!isLowPowerBackend);
 
   const raycaster = new THREE.Raycaster();
   const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);

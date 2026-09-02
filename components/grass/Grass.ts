@@ -5,7 +5,10 @@ import { GrassCompute } from "./GrassCompute";
 import { GrassMaterial } from "./GrassMaterial";
 
 const UINT32_BYTE_SIZE = Uint32Array.BYTES_PER_ELEMENT;
-const INDIRECT_FIRST_INSTANCE_FEATURE = "indirect-first-instance";
+// exported so createGrassScene.ts can check this up front (same feature
+// Grass's constructor gates on) to decide whether to also trim other
+// GPU-heavy effects (shadow map size, bloom) for weaker/non-WebGPU devices
+export const INDIRECT_FIRST_INSTANCE_FEATURE = "indirect-first-instance";
 const INDIRECT_DRAW_BYTE_LENGTH = config.LOD_COUNT * config.INDIRECT_ARGS_STRIDE * UINT32_BYTE_SIZE;
 
 export class UnsupportedGrassRendererError extends Error {}
@@ -19,11 +22,23 @@ export type GrassMonitoringStats = {
   allocatedTriangles: number;
 };
 
+// shape shared with FallbackGrass.ts so createGrassScene.ts/PerformanceMonitor
+// can treat either backend identically. getMonitoringStats is optional since
+// the fallback has no GPU readback to report.
+export interface GrassLike {
+  readonly tile: THREE.Object3D;
+  init(): Promise<void>;
+  setViewerPosition(x: number, z: number): void;
+  update(): void;
+  dispose(): void;
+  getMonitoringStats?(): Promise<GrassMonitoringStats>;
+}
+
 // GPU-driven multi-LOD indirect draw: the compute pass sorts every visible
 // blade into one of three LOD regions and atomically bumps that LOD's
 // instance count, so the CPU never reads anything back — it just issues 3
 // indirect draw calls per frame against whatever counts the GPU wrote.
-export class Grass {
+export class Grass implements GrassLike {
   private compute = new GrassCompute();
   private material: GrassMaterial;
   // every LOD mesh rides the same wrapping tile, so only the group moves

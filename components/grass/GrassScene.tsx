@@ -3,7 +3,6 @@
 import { useEffect, useRef, useState } from "react";
 import * as THREE from "three/webgpu";
 import { createGrassScene, type GrassSceneHandle } from "./createGrassScene";
-import { UnsupportedGrassRendererError } from "./Grass";
 import { playerConfig } from "./playerConfig";
 
 export default function GrassScene() {
@@ -21,29 +20,34 @@ export default function GrassScene() {
     const resize = () => scene?.onResize();
 
     (async () => {
-      renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
-      await renderer.init();
-      if (cancelled) {
-        renderer.dispose();
-        return;
-      }
-
       try {
-        scene = await createGrassScene(renderer, canvas);
-      } catch (err) {
-        if (err instanceof UnsupportedGrassRendererError) {
-          setError(err.message);
+        // no forceWebGL — WebGPURenderer probes for real WebGPU first and
+        // silently falls back to a WebGL2 backend when unavailable (nearly
+        // every mobile browser today). createGrassScene() then separately
+        // picks Grass vs. FallbackGrass depending on what that backend
+        // supports. This try/catch exists so that if init() (or scene setup)
+        // fails for any OTHER reason — e.g. no WebGL2 context at all — the
+        // user gets a visible message instead of a silently blank canvas,
+        // which is what a device with no console access just looks like.
+        renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+        await renderer.init();
+        if (cancelled) {
+          renderer.dispose();
           return;
         }
-        throw err;
-      }
-      if (cancelled) {
-        scene.dispose();
-        return;
-      }
 
-      scene.start();
-      window.addEventListener("resize", resize);
+        scene = await createGrassScene(renderer, canvas);
+        if (cancelled) {
+          scene.dispose();
+          return;
+        }
+
+        scene.start();
+        window.addEventListener("resize", resize);
+      } catch (err) {
+        console.error("[GrassScene] failed to start:", err);
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
     })();
 
     return () => {
@@ -71,11 +75,7 @@ export default function GrassScene() {
         />
         {error && (
           <div className="absolute inset-0 flex items-center justify-center bg-black/80 p-8 text-center text-white">
-            <p className="max-w-md text-sm">
-              This grass demo needs a browser with the WebGPU{" "}
-              <code className="rounded bg-white/10 px-1">indirect-first-instance</code> feature
-              (current Chrome or Edge). {error}
-            </p>
+            <p className="max-w-md text-sm">This experience couldn&apos;t start on this device/browser. {error}</p>
           </div>
         )}
       </div>

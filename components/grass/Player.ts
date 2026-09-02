@@ -16,6 +16,7 @@ type PlayerModel = {
 const PLAYER_MODELS = {
   charcter: { url: "/charcter.glb", walkClip: 12, needsYFlip: false },
   walkingMen: { url: "/walking_men.glb", walkClip: "Take 001", needsYFlip: true },
+  blackShirt: { url: "/chracter_black_shirt.glb", walkClip: 3, needsYFlip: false },
 } satisfies Record<string, PlayerModel>;
 
 // swap the character model by changing this one line

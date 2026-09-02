@@ -1,6 +1,6 @@
 import type { Pane, FolderApi } from "tweakpane";
 import type * as THREE from "three/webgpu";
-import type { Grass } from "./Grass";
+import type { GrassLike } from "./Grass";
 
 const SNAPSHOT_INTERVAL_MS = 1000;
 
@@ -38,9 +38,9 @@ export class PerformanceMonitor {
   private lastSnapshotAt = performance.now();
   private isGrassStatsPending = false;
   private renderer: THREE.WebGPURenderer;
-  private grass: Grass;
+  private grass: GrassLike;
 
-  constructor(pane: Pane, renderer: THREE.WebGPURenderer, grass: Grass) {
+  constructor(pane: Pane, renderer: THREE.WebGPURenderer, grass: GrassLike) {
     this.renderer = renderer;
     this.grass = grass;
 
@@ -96,7 +96,7 @@ export class PerformanceMonitor {
   }
 
   private async refreshGrassStats() {
-    if (this.isGrassStatsPending) return;
+    if (this.isGrassStatsPending || !this.grass.getMonitoringStats) return;
     this.isGrassStatsPending = true;
     try {
       const grassStats = await this.grass.getMonitoringStats();
