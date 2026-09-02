@@ -29,7 +29,11 @@ export default function GrassScene() {
         // fails for any OTHER reason — e.g. no WebGL2 context at all — the
         // user gets a visible message instead of a silently blank canvas,
         // which is what a device with no console access just looks like.
-        renderer = new THREE.WebGPURenderer({ canvas, antialias: true });
+        // ?forceWebGL=1 lets us test the mobile/non-WebGPU code path on a
+        // desktop browser that does have WebGPU, instead of needing an
+        // actual old device — remove once mobile rendering is confirmed good
+        const forceWebGL = new URLSearchParams(window.location.search).has("forceWebGL");
+        renderer = new THREE.WebGPURenderer({ canvas, antialias: true, forceWebGL });
         await renderer.init();
         if (cancelled) {
           renderer.dispose();

@@ -48,8 +48,18 @@ export class Player {
 
     // default texture anisotropy is 1 (none) — every map goes muddy/blurry
     // the moment the surface isn't dead-on to the camera, which reads as
-    // "bad texture quality" even though the source texture is fine
-    const maxAnisotropy = renderer.getMaxAnisotropy();
+    // "bad texture quality" even though the source texture is fine.
+    // getMaxAnisotropy() can throw on the WebGL2 fallback backend (three.js
+    // reads a property off a null WebGL extension object when it's
+    // unavailable, or after a mobile GPU context loss from loading several
+    // big GLB textures at once) — never let a purely cosmetic feature take
+    // the whole scene down with it.
+    let maxAnisotropy = 1;
+    try {
+      maxAnisotropy = renderer.getMaxAnisotropy();
+    } catch (err) {
+      console.warn("[Player] getMaxAnisotropy failed, skipping anisotropic filtering:", err);
+    }
     model.traverse((child) => {
       const mesh = child as THREE.Mesh;
       if (!mesh.isMesh) return;
