@@ -60,7 +60,17 @@ export class FallbackGrass implements GrassLike {
     this.material.transparent = false;
     this.material.forceSinglePass = true;
 
-    const instanceAttr = instancedBufferAttribute<"vec4">(instanceData, "vec4", 4, 0);
+    // instancedBufferAttribute(rawArray, type, stride, offset) silently never
+    // marks the node as instanced (three.js only calls .setInstanced() on the
+    // mat3/mat4 composite branches internally, not the plain vec2/3/4 path) —
+    // so the WebGL2 backend never sets a vertex attribute divisor and reads
+    // this data once per VERTEX instead of once per INSTANCE, running off the
+    // end of the buffer (invisible/garbage geometry). Passing a real
+    // THREE.InstancedBufferAttribute in — the pattern three.js's own
+    // SpriteNodeMaterial docs use — takes the constructor's short-circuit
+    // path instead, which correctly reads .isInstancedBufferAttribute.
+    const instanceAttribute = new THREE.InstancedBufferAttribute(instanceData, 4);
+    const instanceAttr = instancedBufferAttribute<"vec4">(instanceAttribute);
     const localOffset = instanceAttr.xy;
     const scaleY = instanceAttr.z;
     const seed = instanceAttr.w;
