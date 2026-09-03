@@ -6,6 +6,7 @@ const nextConfig: NextConfig = {
       three: "three/webgpu",
     },
   },
+  allowedDevOrigins: ['192.168.1.28'],
 };
 
 export default nextConfig;

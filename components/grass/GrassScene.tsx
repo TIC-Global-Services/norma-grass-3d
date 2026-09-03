@@ -21,6 +21,22 @@ export default function GrassScene() {
 
     (async () => {
       try {
+        // React Strict Mode's dev-only mount→cleanup→mount runs all THREE
+        // synchronously in one tick, with no await in between. Without this
+        // yield, `new THREE.WebGPURenderer()` + `renderer.init()` below would
+        // fire synchronously during the FIRST mount, before its cleanup has
+        // even run to set `cancelled` — so the second mount's renderer starts
+        // initializing concurrently with the first, both racing to claim the
+        // same <canvas>'s GPU context. Yielding one microtask here lets the
+        // first mount's cleanup (which is synchronous) land first, so its
+        // `cancelled` check below is already true and it bails before ever
+        // touching the canvas — only the second (real) mount constructs a
+        // renderer. This is what was producing two "WebGPU is not available"
+        // logs and, on real mobile GPUs, "WebGL Device Lost" from two live
+        // contexts fighting over one canvas.
+        await Promise.resolve();
+        if (cancelled) return;
+
         // no forceWebGL — WebGPURenderer probes for real WebGPU first and
         // silently falls back to a WebGL2 backend when unavailable (nearly
         // every mobile browser today). createGrassScene() then separately
@@ -35,6 +51,12 @@ export default function GrassScene() {
         const forceWebGL = new URLSearchParams(window.location.search).has("forceWebGL");
         renderer = new THREE.WebGPURenderer({ canvas, antialias: true, forceWebGL });
         await renderer.init();
+        // dispose only AFTER init() actually settles — disposing mid-init
+        // tears down a WebGL2 context that isn't finished being created, and
+        // on a React Strict Mode dev double-mount the effect re-runs
+        // immediately after, creating a SECOND renderer/context while this
+        // one is still winding down. Two live GPU contexts on one mobile GPU
+        // at once is a real, observed trigger for "WebGL Device Lost".
         if (cancelled) {
           renderer.dispose();
           return;
@@ -43,6 +65,7 @@ export default function GrassScene() {
         scene = await createGrassScene(renderer, canvas);
         if (cancelled) {
           scene.dispose();
+          renderer.dispose();
           return;
         }
 
@@ -57,8 +80,8 @@ export default function GrassScene() {
     return () => {
       cancelled = true;
       window.removeEventListener("resize", resize);
-      scene?.dispose();
-      renderer?.dispose();
+      // renderer/scene disposal happens above, inside the async chain, once
+      // init()/createGrassScene() actually settle — see comment there
     };
   }, []);
 
